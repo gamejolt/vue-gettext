@@ -196,7 +196,7 @@ var translate = {
     // See the `Language` section in https://www.gnu.org/software/gettext/manual/html_node/Header-Entry.html
     // So try `ll_CC` first, or the `ll` abbreviation which can be three-letter sometimes:
     // https://www.gnu.org/software/gettext/manual/html_node/Language-Codes.html#Language-Codes
-    var translations = _Vue.$translations[language] || _Vue.$translations[language.split('_')[0]];
+    var translations = languageVm.translations[language] || languageVm.translations[language.split('_')[0]];
     if (!translations) {
       if (!_Vue.config.getTextPluginSilent) {
         console.warn(("No translations found for " + language));
@@ -483,6 +483,25 @@ var GetTextPlugin = function (Vue, options) {
     },
     data: {
       current: options.defaultLanguage,
+      translations: options.translations,
+    },
+    methods: {
+      addTranslations( translations ) {
+        for ( const lang of Object.keys( translations ) ) {
+          const data = translations[ lang ];
+          if ( !this.translations[ lang ] ) {
+            Vue.set( this.translations, lang, data );
+            return;
+          }
+
+          for ( const key of Object.keys( data ) ) {
+            const val = data[ key ];
+            if ( !this.translations[ lang ][ key ] ) {
+              Vue.set( this.translations[ lang ], key, val );
+            }
+          }
+        }
+      }
     },
     mixins: [options.languageVmMixin],
   });
