@@ -277,6 +277,35 @@ var translate = {
 
 };
 
+function childrenToHtml( children )
+{
+  var html = '';
+  for ( var i = 0; i < children.length; ++i ) {
+    var child = children[i];
+
+    if ( child.tag ) {
+      html += '<' + child.tag + '>';
+    }
+
+    if ( child.hasOwnProperty( 'text' ) && child.text ) {
+      html += child.text;
+    }
+    else if ( typeof child === 'string' ) {
+      html += child;
+    }
+
+    if ( child.children ) {
+      html += childrenToHtml( child.children );
+    }
+
+    if ( child.tag ) {
+      html += '</' + child.tag + '>';
+    }
+  }
+
+  return html;
+}
+
 /**
  * Translate content according to the current language.
  */
@@ -288,11 +317,7 @@ var Component = {
 
     this.msgid = '';  // Don't crash the app with an empty component, i.e.: <translate></translate>.
     if (this.$options._renderChildren) {
-      if (this.$options._renderChildren[0].hasOwnProperty('text')) {
-        this.msgid = this.$options._renderChildren[0].text.trim();  // Stores the raw uninterpolated string to translate.
-      } else {
-        this.msgid = this.$options._renderChildren[0].trim();
-      }
+      this.msgid = childrenToHtml( this.$options._renderChildren ).trim();
     }
 
     this.isPlural = this.translateN !== undefined && this.translatePlural !== undefined;
@@ -306,6 +331,11 @@ var Component = {
     tag: {
       type: String,
       default: 'span',
+    },
+    escapeHtml: {
+      type: Boolean,
+      default: true,
+      required: false,
     },
     // Always use v-bind for dynamically binding the `translateN` prop to data on the parent,
     // i.e.: `:translateN`.
@@ -343,7 +373,14 @@ var Component = {
   render: function (createElement) {
     // The text must be wraped inside a root HTML element, so we use a <span>.
     // https://github.com/vuejs/vue/blob/a4fcdb/src/compiler/parser/index.js#L209
-    return createElement(this.tag, [this.translation])
+
+    return this.escapeHtml
+      ? createElement(this.tag, [this.translation])
+      : createElement(this.tag, {
+          domProps: {
+            innerHTML: this.translation,
+          },
+      })
   },
 
 };
@@ -486,16 +523,16 @@ var GetTextPlugin = function (Vue, options) {
       translations: options.translations,
     },
     methods: {
-      addTranslations( translations ) {
-        for ( const lang of Object.keys( translations ) ) {
-          const data = translations[ lang ];
+      addTranslations: function( translations ) {
+        for ( var lang in translations ) {
+          var data = translations[ lang ];
           if ( !this.translations[ lang ] ) {
             Vue.set( this.translations, lang, data );
             return;
           }
 
-          for ( const key of Object.keys( data ) ) {
-            const val = data[ key ];
+          for ( var key in data ) {
+            var val = data[ key ];
             if ( !this.translations[ lang ][ key ] ) {
               Vue.set( this.translations[ lang ], key, val );
             }
