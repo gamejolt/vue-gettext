@@ -351,6 +351,10 @@ var Component = {
       type: String,
       required: false,
     },
+    translateParams: {
+      type: Object,
+      required: false,
+    },
     // `translateComment` is used exclusively by `easygettext`'s `gettext-extract`.
     translateComment: {
       type: String,
@@ -366,7 +370,12 @@ var Component = {
         this.translateContext,
         this.$language.current
       );
-      return this.$gettextInterpolate(translation, this.$parent)
+
+      var params = this.$parent;
+      if (this.translateParams) {
+        params = Object.assign({}, this.$parent, this.translateParams);
+      }
+      return this.$gettextInterpolate(translation, params)
     },
   },
 
