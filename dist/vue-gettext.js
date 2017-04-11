@@ -1,5 +1,5 @@
 /**
- * vue-gettext v2.0.8
+ * vue-gettext v2.0.10
  * (c) 2017 Polyconseil
  * @license MIT
  */
@@ -178,18 +178,22 @@ var translate = {
   * @param {String} msgid - The translation key
   * @param {Number} n - The number to switch between singular and plural
   * @param {String} context - The translation key context
+  * @param {String} defaultPlural - The default plural value (optional)
   * @param {String} language - The language ID (e.g. 'fr_FR' or 'en_US')
   *
   * @return {String} The translated string
   */
-  getTranslation: function (msgid, n, context, language) {
+  getTranslation: function (msgid, n, context, defaultPlural, language) {
     if ( n === void 0 ) n = 1;
     if ( context === void 0 ) context = null;
+    if ( defaultPlural === void 0 ) defaultPlural = null;
     if ( language === void 0 ) language = _Vue.config.language;
+
 
     if (!msgid) {
       return ''  // Allow empty strings.
     }
+
     // `easygettext`'s `gettext-compile` generates a JSON version of a .po file based on its `Language` field.
     // But in this field, `ll_CC` combinations denoting a language’s main dialect are abbreviated as `ll`,
     // for example `de` is equivalent to `de_DE` (German as spoken in Germany).
@@ -197,26 +201,44 @@ var translate = {
     // So try `ll_CC` first, or the `ll` abbreviation which can be three-letter sometimes:
     // https://www.gnu.org/software/gettext/manual/html_node/Language-Codes.html#Language-Codes
     var translations = languageVm.translations[language] || languageVm.translations[language.split('_')[0]];
+
     if (!translations) {
       if (!_Vue.config.getTextPluginSilent) {
         console.warn(("No translations found for " + language));
       }
-      return msgid  // Returns the untranslated string.
+      return defaultPlural && n > 1 ? defaultPlural : msgid  // Returns the untranslated string, singular or plural.
     }
+
     var translated = translations[msgid];
+
+    // Sometimes msgid may not have the same number of spaces than its key. This could happen e.g. when using
+    // new lines. See comments in the `created` hook of `component.js` and issue #15 for more information.
+    if (!translated && /\s{2,}/g.test(msgid)) {
+      Object.keys(translations).some(function (key) {
+        if (key.replace(/\s{2,}/g, ' ') === msgid.replace(/\s{2,}/g, ' ')) {
+          translated = translations[key];
+          return translated
+        }
+      });
+    }
+
     if (!translated) {
       if (!_Vue.config.getTextPluginSilent) {
         console.warn(("Untranslated " + language + " key found:\n" + msgid));
       }
-      return msgid  // Returns the untranslated string.
+      return defaultPlural && n > 1 ? defaultPlural : msgid  // Returns the untranslated string, singular or plural.
     }
+
     if (context) {
       translated = translated[context];
     }
+
     if (typeof translated === 'string') {
       translated = [translated];
     }
+
     return translated[plurals.getTranslationIndex(language, n)]
+
   },
 
  /**
@@ -256,7 +278,7 @@ var translate = {
   * @return {String} The translated string
   */
   'ngettext': function (msgid, plural, n) {
-    return this.getTranslation(msgid, n)
+    return this.getTranslation(msgid, n, null, plural)
   },
 
  /**
@@ -272,7 +294,7 @@ var translate = {
   * @return {String} The translated string
   */
   'npgettext': function (context, msgid, plural, n) {
-    return this.getTranslation(msgid, n, context)
+    return this.getTranslation(msgid, n, context, plural)
   },
 
 };
@@ -316,6 +338,14 @@ var Component = {
   created: function () {
 
     this.msgid = '';  // Don't crash the app with an empty component, i.e.: <translate></translate>.
+
+    // Store the raw uninterpolated string to translate.
+    // This is currently done by looking inside a private attribute `_renderChildren` of the current
+    // Vue instance's instantiation options.
+    // However spaces introduced by newlines are not exactly the same between the HTML and the
+    // content of `_renderChildren`, e.g. 6 spaces becomes 4 etc. See issue #15 for problems which
+    // can arise with this.
+    // I haven't (yet) found a better way to access the raw content of the component.
     if (this.$options._renderChildren) {
       this.msgid = childrenToHtml( this.$options._renderChildren ).trim();
     }
@@ -368,6 +398,7 @@ var Component = {
         this.msgid,
         this.translateN,
         this.translateContext,
+        this.isPlural ? this.translatePlural : null,
         this.$language.current
       );
 
@@ -380,9 +411,9 @@ var Component = {
   },
 
   render: function (createElement) {
-    // The text must be wraped inside a root HTML element, so we use a <span>.
+    // The text must be wraped inside a root HTML element, so we use a <span> (by default).
     // https://github.com/vuejs/vue/blob/a4fcdb/src/compiler/parser/index.js#L209
-
+    
     return this.escapeHtml
       ? createElement(this.tag, [this.translation])
       : createElement(this.tag, {
