@@ -381,6 +381,10 @@ var Component = {
       type: String,
       required: false,
     },
+    translateParams: {
+      type: Object,
+      required: false,
+    },
     // `translateComment` is used exclusively by `easygettext`'s `gettext-extract`.
     translateComment: {
       type: String,
@@ -397,7 +401,13 @@ var Component = {
         this.isPlural ? this.translatePlural : null,
         this.$language.current
       );
-      return this.$gettextInterpolate(translation, this.$parent)
+
+      var params = this.$parent;
+      if (this.translateParams) {
+        params = Object.assign({}, this.$parent, this.translateParams);
+      }
+
+      return this.$gettextInterpolate(translation, params);
     },
   },
 
@@ -503,6 +513,7 @@ var updateTranslation = function (el, binding, vnode) {
   var translateN = attrs['translate-n'];
   var translatePlural = attrs['translate-plural'];
   var isPlural = translateN !== undefined && translatePlural !== undefined;
+  var params = binding.value || {};
 
   if (!isPlural && (translateN || translatePlural)) {
     throw new Error('`translate-n` and `translate-plural` attributes must be used together:' + msgid + '.')
@@ -516,7 +527,7 @@ var updateTranslation = function (el, binding, vnode) {
     el.dataset.currentLanguage
   );
 
-  var msg = interpolate(translation, vnode.context);
+  var msg = interpolate(translation, Object.assign({}, vnode.context, params));
 
   el.innerHTML = msg;
 
