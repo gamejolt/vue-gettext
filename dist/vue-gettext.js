@@ -1,5 +1,5 @@
 /**
- * vue-gettext v2.0.8
+ * vue-gettext v2.0.19
  * (c) 2017 Polyconseil
  * @license MIT
  */
@@ -126,7 +126,7 @@ var plurals = {
         return (n === 1) ? 0 : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 1 : 2
       case 'sl':  // Slovenian
         // 4 forms
-        return (n % 100 === 1 ? 1 : n % 100 === 2 ? 2 : n % 100 === 3 || n % 100 === 4 ? 3 : 0)
+        return (n % 100 === 1 ? 0 : n % 100 === 2 ? 1 : n % 100 === 3 || n % 100 === 4 ? 2 : 3)
       case 'mt':  // Maltese
         // 4 forms
         return (n === 1 ? 0 : n === 0 || (n % 100 > 1 && n % 100 < 11) ? 1 : (n % 100 > 10 && n % 100 < 20) ? 2 : 3)
@@ -178,18 +178,22 @@ var translate = {
   * @param {String} msgid - The translation key
   * @param {Number} n - The number to switch between singular and plural
   * @param {String} context - The translation key context
+  * @param {String} defaultPlural - The default plural value (optional)
   * @param {String} language - The language ID (e.g. 'fr_FR' or 'en_US')
   *
   * @return {String} The translated string
   */
-  getTranslation: function (msgid, n, context, language) {
+  getTranslation: function (msgid, n, context, defaultPlural, language) {
     if ( n === void 0 ) n = 1;
     if ( context === void 0 ) context = null;
+    if ( defaultPlural === void 0 ) defaultPlural = null;
     if ( language === void 0 ) language = _Vue.config.language;
+
 
     if (!msgid) {
       return ''  // Allow empty strings.
     }
+
     // `easygettext`'s `gettext-compile` generates a JSON version of a .po file based on its `Language` field.
     // But in this field, `ll_CC` combinations denoting a language’s main dialect are abbreviated as `ll`,
     // for example `de` is equivalent to `de_DE` (German as spoken in Germany).
@@ -197,26 +201,52 @@ var translate = {
     // So try `ll_CC` first, or the `ll` abbreviation which can be three-letter sometimes:
     // https://www.gnu.org/software/gettext/manual/html_node/Language-Codes.html#Language-Codes
     var translations = _Vue.$translations[language] || _Vue.$translations[language.split('_')[0]];
+
     if (!translations) {
       if (!_Vue.config.getTextPluginSilent) {
         console.warn(("No translations found for " + language));
       }
-      return msgid  // Returns the untranslated string.
+      // Returns the untranslated string, singular or plural.
+      return defaultPlural && plurals.getTranslationIndex(language, n) > 0 ? defaultPlural : msgid
     }
+
     var translated = translations[msgid];
+
+    // Sometimes msgid may not have the same number of spaces than its key. This could happen e.g. when using
+    // new lines. See comments in the `created` hook of `component.js` and issue #15 for more information.
+    if (!translated && /\s{2,}/g.test(msgid)) {
+      Object.keys(translations).some(function (key) {
+        if (key.replace(/\s{2,}/g, ' ') === msgid.replace(/\s{2,}/g, ' ')) {
+          translated = translations[key];
+          return translated
+        }
+      });
+    }
+
     if (!translated) {
       if (!_Vue.config.getTextPluginSilent) {
         console.warn(("Untranslated " + language + " key found:\n" + msgid));
       }
-      return msgid  // Returns the untranslated string.
+      // Returns the untranslated string, singular or plural.
+      return defaultPlural && plurals.getTranslationIndex(language, n) > 0 ? defaultPlural : msgid
     }
+
     if (context) {
       translated = translated[context];
     }
+
     if (typeof translated === 'string') {
       translated = [translated];
     }
+
+    // Avoid a crash when a msgid exists with and without a context, see #32.
+    if (!(translated instanceof Array) && translated.hasOwnProperty('')) {
+      // As things currently stand, the void key means a void context for easygettext.
+      translated = [translated['']];
+    }
+
     return translated[plurals.getTranslationIndex(language, n)]
+
   },
 
  /**
@@ -256,7 +286,7 @@ var translate = {
   * @return {String} The translated string
   */
   'ngettext': function (msgid, plural, n) {
-    return this.getTranslation(msgid, n)
+    return this.getTranslation(msgid, n, null, plural)
   },
 
  /**
@@ -272,10 +302,32 @@ var translate = {
   * @return {String} The translated string
   */
   'npgettext': function (context, msgid, plural, n) {
-    return this.getTranslation(msgid, n, context)
+    return this.getTranslation(msgid, n, context, plural)
   },
 
 };
+
+// UUID v4 generator (RFC4122 compliant).
+//
+// https://gist.github.com/jcxplorer/823878
+
+function uuid () {
+
+  var uuid = '';
+  var i;
+  var random;
+
+  for (i = 0; i < 32; i++) {
+    random = Math.random() * 16 | 0;
+    if (i === 8 || i === 12 || i === 16 || i === 20) {
+      uuid += '-';
+    }
+    uuid += (i === 12 ? 4 : (i === 16 ? (random & 3 | 8) : random)).toString(16);
+  }
+
+  return uuid
+
+}
 
 /**
  * Translate content according to the current language.
@@ -287,9 +339,17 @@ var Component = {
   created: function () {
 
     this.msgid = '';  // Don't crash the app with an empty component, i.e.: <translate></translate>.
+
+    // Store the raw uninterpolated string to translate.
+    // This is currently done by looking inside a private attribute `_renderChildren` of the current
+    // Vue instance's instantiation options.
+    // However spaces introduced by newlines are not exactly the same between the HTML and the
+    // content of `_renderChildren`, e.g. 6 spaces becomes 4 etc. See issue #15 for problems which
+    // can arise with this.
+    // I haven't (yet) found a better way to access the raw content of the component.
     if (this.$options._renderChildren) {
       if (this.$options._renderChildren[0].hasOwnProperty('text')) {
-        this.msgid = this.$options._renderChildren[0].text.trim();  // Stores the raw uninterpolated string to translate.
+        this.msgid = this.$options._renderChildren[0].text.trim();
       } else {
         this.msgid = this.$options._renderChildren[0].trim();
       }
@@ -334,6 +394,7 @@ var Component = {
         this.msgid,
         this.translateN,
         this.translateContext,
+        this.isPlural ? this.translatePlural : null,
         this.$language.current
       );
       return this.$gettextInterpolate(translation, this.$parent)
@@ -341,9 +402,192 @@ var Component = {
   },
 
   render: function (createElement) {
-    // The text must be wraped inside a root HTML element, so we use a <span>.
+
+    // Fix the problem with v-if, see #29.
+    // Vue re-uses DOM elements for efficiency if they don't have a key attribute, see:
+    // https://vuejs.org/v2/guide/conditional.html#Controlling-Reusable-Elements-with-key
+    // https://vuejs.org/v2/api/#key
+    if (!this.$vnode.key) {
+      this.$vnode.key = uuid();
+    }
+
+    // The text must be wraped inside a root HTML element, so we use a <span> (by default).
     // https://github.com/vuejs/vue/blob/a4fcdb/src/compiler/parser/index.js#L209
     return createElement(this.tag, [this.translation])
+
+  },
+
+};
+
+/* Interpolation RegExp.
+ *
+ * Because interpolation inside attributes are deprecated in Vue 2 we have to
+ * use another set of delimiters to be able to use `translate-plural` etc.
+ * We use %{ } delimiters.
+ *
+ * /
+ *   %\{                => Starting delimiter: `%{`
+ *     (                => Start capture
+ *       (?:.|\n)       => Non-capturing group: any character or newline
+ *       +?             => One or more times (ungreedy)
+ *     )                => End capture
+ *   \}                 => Ending delimiter: `}`
+ * /g                   => Global: don't return after first match
+ */
+var INTERPOLATION_RE = /%\{((?:.|\n)+?)\}/g;
+
+var MUSTACHE_SYNTAX_RE = /\{\{((?:.|\n)+?)\}\}/g;
+
+/**
+ * Evaluate a piece of template string containing %{ } placeholders.
+ * E.g.: 'Hi %{ user.name }' => 'Hi Bob'
+ *
+ * This is a vm.$interpolate alternative for Vue 2.
+ * https://vuejs.org/v2/guide/migration.html#vm-interpolate-removed
+ *
+ * @param {String} msgid - The translation key containing %{ } placeholders
+ * @param {Object} context - An object whose elements are put in their corresponding placeholders
+ *
+ * @return {String} The interpolated string
+ */
+var interpolate = function (msgid, context) {
+  if ( context === void 0 ) context = {};
+
+
+  if (!_Vue.config.getTextPluginSilent && MUSTACHE_SYNTAX_RE.test(msgid)) {
+    console.warn(("Mustache syntax cannot be used with vue-gettext. Please use \"%{}\" instead of \"{{}}\" in: " + msgid));
+  }
+
+  var result = msgid.replace(INTERPOLATION_RE, function (match, token) {
+
+    var expression = token.trim();
+    var evaluated;
+
+    function evalInContext (expression) {
+      try {
+        evaluated = eval('this.' + expression);  // eslint-disable-line no-eval
+      } catch (e) {
+        // Ignore errors, because this function may be called recursively later.
+      }
+      if (evaluated === undefined) {
+        if (this.$parent) {
+          // Recursively climb the $parent chain to allow evaluation inside nested components, see #23 and #24.
+          return evalInContext.call(this.$parent, expression)
+        } else {
+          console.warn(("Cannot evaluate expression: " + expression));
+          evaluated = expression;
+        }
+      }
+      return evaluated
+    }
+
+    return evalInContext.call(context, expression)
+
+  });
+
+  return result
+
+};
+
+// Store this values as function attributes for easy access elsewhere to bypass a Rollup
+// weak point with `export`:
+// https://github.com/rollup/rollup/blob/fca14d/src/utils/getExportMode.js#L27
+interpolate.INTERPOLATION_RE = INTERPOLATION_RE;
+interpolate.INTERPOLATION_PREFIX = '%{';
+
+var updateTranslation = function (el, binding, vnode) {
+
+  var attrs = vnode.data.attrs || {};
+  var msgid = el.dataset.msgid;
+  var translateContext = attrs['translate-context'];
+  var translateN = attrs['translate-n'];
+  var translatePlural = attrs['translate-plural'];
+  var isPlural = translateN !== undefined && translatePlural !== undefined;
+
+  if (!isPlural && (translateN || translatePlural)) {
+    throw new Error('`translate-n` and `translate-plural` attributes must be used together:' + msgid + '.')
+  }
+
+  var translation = translate.getTranslation(
+    msgid,
+    translateN,
+    translateContext,
+    isPlural ? translatePlural : null,
+    el.dataset.currentLanguage
+  );
+
+  var msg = interpolate(translation, vnode.context);
+
+  el.innerHTML = msg;
+
+};
+
+/**
+ * A directive to translate content according to the current language.
+ *
+ * Use this directive instead of the component if you need to translate HTML content.
+ * It's too tricky to support HTML content within the component because we cannot get the raw HTML to use as `msgid`.
+ *
+ * This directive has a similar interface to the <translate> component, supporting
+ * `translate-comment`, `translate-context`, `translate-plural`, `translate-n`.
+ *
+ * `<p v-translate translate-comment='Good stuff'>This is <strong class='txt-primary'>Sparta</strong>!</p>`
+ *
+ * If you need interpolation, you must add an expression that outputs binding value that changes with each of the
+ * context variable:
+ * `<p v-translate="fullName + location">I am %{ fullName } and from %{ location }</p>`
+ */
+var Directive = {
+
+  bind: function bind (el, binding, vnode) {
+
+    // Fix the problem with v-if, see #29.
+    // Vue re-uses DOM elements for efficiency if they don't have a key attribute, see:
+    // https://vuejs.org/v2/guide/conditional.html#Controlling-Reusable-Elements-with-key
+    // https://vuejs.org/v2/api/#key
+    if (!vnode.key) {
+      vnode.key = uuid();
+    }
+
+    // Get the raw HTML and store it in the element's dataset (as advised in Vue's official guide).
+    // Note: not trimming the content here as it should be picked up as-is by the extractor.
+    var msgid = el.innerHTML;
+    el.dataset.msgid = msgid;
+
+    // Store the current language in the element's dataset.
+    el.dataset.currentLanguage = _Vue.config.language;
+
+    // Output a info in the console if an interpolation is required but no expression is provided.
+    if (!_Vue.config.getTextPluginSilent) {
+      var hasInterpolation = msgid.indexOf(interpolate.INTERPOLATION_PREFIX) !== -1;
+      if (hasInterpolation && !binding.expression) {
+        console.info(("No expression is provided for change detection. The translation for this key will be static:\n" + msgid));
+      }
+    }
+
+    updateTranslation(el, binding, vnode);
+
+  },
+
+  update: function update (el, binding, vnode) {
+
+    var doUpdate = false;
+
+    // Trigger an update if the language has changed.
+    if (el.dataset.currentLanguage !== _Vue.config.language) {
+      el.dataset.currentLanguage = _Vue.config.language;
+      doUpdate = true;
+    }
+
+    // Trigger an update if an optional bound expression has changed.
+    if (!doUpdate && binding.expression && (binding.value !== binding.oldValue)) {
+      doUpdate = true;
+    }
+
+    if (doUpdate) {
+      updateTranslation(el, binding, vnode);
+    }
+
   },
 
 };
@@ -370,61 +614,6 @@ var Config = function (Vue, languageVm, getTextPluginSilent) {
     writable: true,
     value: getTextPluginSilent,
   });
-
-};
-
-/* Interpolation RegExp.
- *
- * Because interpolation inside attributes are deprecated in Vue 2 we have to
- * use another set of delimiters to be able to use `translate-plural` etc.
- * We use %{ } delimiters.
- *
- * /
- *   %\{                => Starting delimiter: `%{`
- *     (                => Start capture
- *       (?:.|\n)       => Non-capturing group: any character or newline
- *       +?             => One or more times (ungreedy)
- *     )                => End capture
- *   \}                 => Ending delimiter: `}`
- * /g                   => Global: don't return after first match
- */
-var INTERPOLATION_RE = /%\{((?:.|\n)+?)\}/g;
-
-/**
- * Evaluate a piece of template string containing %{ } placeholders.
- * E.g.: 'Hi %{ user.name }' => 'Hi Bob'
- *
- * This is a vm.$interpolate alternative for Vue 2.
- * https://vuejs.org/v2/guide/migration.html#vm-interpolate-removed
- *
- * @param {String} msgid - The translation key containing %{ } placeholders
- * @param {Object} context - An object whose elements are put in their corresponding placeholders
- *
- * @return {String} The interpolated string
- */
-var interpolate = function (msgid, context) {
-  if ( context === void 0 ) context = {};
-
-
-  var result = msgid.replace(INTERPOLATION_RE, function (match, token) {
-
-    var expression = token.trim();
-
-    function evalInContext (expression) {
-      return eval('this.' + expression)  // eslint-disable-line no-eval
-    }
-
-    try {
-      return evalInContext.call(context, expression)
-    } catch (e) {
-      console.warn(("Cannot evaluate expression: \"" + expression + "\"."));
-      console.warn(e.stack);
-      return expression
-    }
-
-  });
-
-  return result
 
 };
 
@@ -495,6 +684,9 @@ var GetTextPlugin = function (Vue, options) {
 
   // Makes <translate> available as a global component.
   Vue.component('translate', Component);
+
+  // An option to support translation with HTML content: `v-translate`.
+  Vue.directive('translate', Directive);
 
   // Exposes global properties.
   Vue.$translations = options.translations;

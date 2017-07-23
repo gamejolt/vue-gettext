@@ -7,8 +7,11 @@ import translations from './translations.json'
 
 import AlertComponent from './components/alert'
 import CustomTags from './components/customTags'
+import DirectiveComponent from './components/directive'
+import IfComponent from './components/if'
 import LanguageSelectComponent from './components/languageSelect'
 import MomentFilterComponent from './components/momentFilter'
+import MultiLinesComponent from './components/multilines'
 import PluralComponent from './components/plural'
 
 
@@ -27,8 +30,11 @@ export let vm = new Vue({
   components: {
     'alert': AlertComponent,
     'custom-tags': CustomTags,
+    'directive': DirectiveComponent,
+    'if': IfComponent,
     'language-select': LanguageSelectComponent,
     'moment-filter': MomentFilterComponent,
+    'multilines': MultiLinesComponent,
     'plural': PluralComponent,
   },
 })
