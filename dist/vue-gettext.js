@@ -693,6 +693,26 @@ var GetTextPlugin = function (Vue, options) {
     },
     data: {
       current: options.defaultLanguage,
+      translations: options.translations,
+    },
+    methods: {
+      addTranslations(translations) {
+        var _this = this;
+        Object.keys(translations).forEach(function(lang) {
+          var data = translations[lang];
+          if (!_this.translations[lang]) {
+            _this.$set(_this.translations, lang, data);
+            return;
+          }
+
+          Object.keys(data).forEach(function(key) {
+            var val = data[key];
+            if (!_this.translations[lang][key]) {
+              _this.$set(_this.translations[lang], key, val);
+            }
+          });
+        });
+      },
     },
     mixins: [options.languageVmMixin],
   });
@@ -710,7 +730,14 @@ var GetTextPlugin = function (Vue, options) {
   Vue.directive('translate', Directive);
 
   // Exposes global properties.
-  Vue.$translations = options.translations;
+  Object.defineProperty(Vue, '$translations', {
+    enumerable: true,
+    configurable: true,
+    get: function() {
+      return languageVm.translations;
+    },
+  });
+
   // Exposes instance methods.
   Vue.prototype.$gettext = translate.gettext.bind(translate);
   Vue.prototype.$pgettext = translate.pgettext.bind(translate);
