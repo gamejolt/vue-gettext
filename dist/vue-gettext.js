@@ -696,7 +696,7 @@ var GetTextPlugin = function (Vue, options) {
       translations: options.translations,
     },
     methods: {
-      addTranslations(translations) {
+      addTranslations: function(translations) {
         var _this = this;
         Object.keys(translations).forEach(function(lang) {
           var data = translations[lang];
