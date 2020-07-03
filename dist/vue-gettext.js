@@ -462,8 +462,9 @@ var MUSTACHE_SYNTAX_RE = /\{\{((?:.|\n)+?)\}\}/g;
  *
  * @return {String} The interpolated string
  */
-var interpolate = function (msgid, context) {
+var interpolate = function (msgid, context, disableHtmlEscaping) {
   if ( context === void 0 ) context = {};
+  if ( disableHtmlEscaping === void 0 ) disableHtmlEscaping = false;
 
 
   if (!_Vue.config.getTextPluginSilent && MUSTACHE_SYNTAX_RE.test(msgid)) {
@@ -475,9 +476,26 @@ var interpolate = function (msgid, context) {
     var expression = token.trim();
     var evaluated;
 
+    var escapeHtmlMap = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      '\'': '&#039;',
+    };
+
+    // Avoid eval() by splitting `expression` and looping through its different properties if any, see #55.
+    function getProps (obj, expression) {
+      var arr = expression.split(EVALUATION_RE).filter(function (x) { return x; });
+      while (arr.length) {
+        obj = obj[arr.shift()];
+      }
+      return obj
+    }
+
     function evalInContext (expression) {
       try {
-        evaluated = eval('this.' + expression);  // eslint-disable-line no-eval
+        evaluated = getProps(this, expression);
       } catch (e) {
         // Ignore errors, because this function may be called recursively later.
       }
@@ -490,7 +508,13 @@ var interpolate = function (msgid, context) {
           evaluated = expression;
         }
       }
-      return evaluated
+      var result = evaluated.toString();
+      if (disableHtmlEscaping) {
+        // Do not escape HTML, see #78.
+        return result
+      }
+      // Escape HTML, see #78.
+      return result.replace(/[&<>"']/g, function (m) { return escapeHtmlMap[m] })
     }
 
     return evalInContext.call(context, expression)
@@ -516,6 +540,7 @@ var updateTranslation = function (el, binding, vnode) {
   var translatePlural = attrs['translate-plural'];
   var isPlural = translateN !== undefined && translatePlural !== undefined;
   var context = vnode.context;
+  var disableHtmlEscaping = attrs['render-html'] === 'true';
 
   if (!isPlural && (translateN || translatePlural)) {
     throw new Error('`translate-n` and `translate-plural` attributes must be used together:' + msgid + '.')
@@ -537,7 +562,7 @@ var updateTranslation = function (el, binding, vnode) {
     el.dataset.currentLanguage
   );
 
-  var msg = interpolate(translation, context);
+  var msg = interpolate(translation, context, disableHtmlEscaping);
 
   el.innerHTML = msg;
 
