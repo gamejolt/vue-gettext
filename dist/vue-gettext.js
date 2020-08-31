@@ -462,9 +462,9 @@ var MUSTACHE_SYNTAX_RE = /\{\{((?:.|\n)+?)\}\}/g;
  *
  * @return {String} The interpolated string
  */
-var interpolate = function (msgid, context, disableHtmlEscaping) {
+var interpolate = function (msgid, context, enableHTMLEscaping) {
   if ( context === void 0 ) context = {};
-  if ( disableHtmlEscaping === void 0 ) disableHtmlEscaping = false;
+  if ( enableHTMLEscaping === void 0 ) enableHTMLEscaping = false;
 
 
   if (!_Vue.config.getTextPluginSilent && MUSTACHE_SYNTAX_RE.test(msgid)) {
@@ -500,12 +500,12 @@ var interpolate = function (msgid, context, disableHtmlEscaping) {
         }
       }
       var result = evaluated.toString();
-      if (disableHtmlEscaping) {
-        // Do not escape HTML, see #78.
-        return result
+      if (enableHTMLEscaping) {
+        // Escape HTML, see #78.
+        return result.replace(/[&<>"']/g, function (m) { return escapeHtmlMap[m] });  
       }
-      // Escape HTML, see #78.
-      return result.replace(/[&<>"']/g, function (m) { return escapeHtmlMap[m] })
+      // Do not escape HTML, see #78.
+      return result;
     }
 
     return evalInContext.call(context, expression)
@@ -531,7 +531,7 @@ var updateTranslation = function (el, binding, vnode) {
   var translatePlural = attrs['translate-plural'];
   var isPlural = translateN !== undefined && translatePlural !== undefined;
   var context = vnode.context;
-  var disableHtmlEscaping = attrs['render-html'] === 'true';
+  var enableHTMLEscaping = attrs['render-html'] !== 'true';
 
   if (!isPlural && (translateN || translatePlural)) {
     throw new Error('`translate-n` and `translate-plural` attributes must be used together:' + msgid + '.')
@@ -553,7 +553,7 @@ var updateTranslation = function (el, binding, vnode) {
     el.dataset.currentLanguage
   );
 
-  var msg = interpolate(translation, context, disableHtmlEscaping);
+  var msg = interpolate(translation, context, enableHTMLEscaping);
 
   el.innerHTML = msg;
 
